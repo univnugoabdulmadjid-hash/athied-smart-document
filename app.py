@@ -7,6 +7,7 @@ from config.system_prompts import PROMPT_KARYA_ILMIAH_HUKUM, PROMPT_BUKU_AKADEMI
 from modules.ai_engine import generate_section_content_with_pdf, chat_interactive_agent
 from modules.api_references import fetch_openalex_articles, fetch_crossref_articles, fetch_google_books, generate_ris_string
 from modules.docx_exporter import export_chapter_to_docx
+from modules.gdrive_manager import save_to_gdrive, list_gdrive_files, load_from_gdrive
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION & SECURE LOGIN SYSTEM
@@ -85,10 +86,10 @@ if "locked_title" not in st.session_state:
 if "locked_outline" not in st.session_state:
     st.session_state.locked_outline = []
 if "current_project_name" not in st.session_state:
-    st.session_state.current_project_name = "Proyek_HAN_1"
+    st.session_state.current_project_name = "Proyek_Disertasi_1"
 
 # -----------------------------------------------------------------------------
-# 3. SIDEBAR PANEL (MANAGEMENT PROYEK HYBRID - CLOUD & LOCAL)
+# 3. SIDEBAR PANEL (MANAJEMEN PROYEK TERPUSAT - GOOGLE DRIVE)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     if os.path.exists("profile.png"):
@@ -100,18 +101,19 @@ with st.sidebar:
     st.divider()
 
     api_key_active = st.secrets.get("GEMINI_API_KEY", "")
+    gdrive_folder_id = st.secrets.get("GDRIVE_FOLDER_ID", "")
 
-    st.subheader("💾 Manajemen Pekerjaan Proyek")
+    st.subheader("☁️ Manajemen Proyek Google Drive")
 
-    # Kolom Nama Proyek yang Ter-update Otomatis
+    # Kolom Input Nama Proyek
     project_name_input = st.text_input(
         "Nama Berkas Proyek", 
         value=st.session_state.current_project_name, 
-        help="Masukkan nama proyek tanpa ekstensi"
+        help="Nama proyek yang tersimpan di Google Drive"
     )
     st.session_state.current_project_name = project_name_input.strip().replace(" ", "_")
 
-    # Paket Data Proyek untuk Simpan / Download
+    # Menyiapkan Struktur Data Proyek
     current_project_data = {
         "project_name": st.session_state.current_project_name,
         "draft_chapters": st.session_state.draft_chapters,
@@ -123,74 +125,60 @@ with st.sidebar:
     }
     json_project_bytes = json.dumps(current_project_data, indent=2, ensure_ascii=False).encode('utf-8')
 
-    # FITUR 1: DOWNLOAD FILE PROYEK (COCOK UNTUK STREAMLIT CLOUD & LOCAL)
-    st.download_button(
-        label="📥 Unduh Berkas Proyek (.athied)",
-        data=json_project_bytes,
-        file_name=f"{st.session_state.current_project_name}.athied",
-        mime="application/json",
-        use_container_width=True,
-        type="primary"
-    )
+    # SATU TOMBOL TUNGGAL UTAMA SIMPAN PROYEK KE GOOGLE DRIVE
+    if st.button("💾 Simpan Proyek ke Google Drive", type="primary", use_container_width=True):
+        if not gdrive_folder_id:
+            st.error("GDRIVE_FOLDER_ID belum dikonfigurasi di Secrets.")
+        else:
+            with st.spinner("Menyimpan & menimpa berkas di Google Drive..."):
+                success, msg = save_to_gdrive(
+                    st.session_state.current_project_name, 
+                    json_project_bytes, 
+                    gdrive_folder_id
+                )
+                if success:
+                    st.success(msg)
+                else:
+                    st.error(msg)
 
-    # FITUR 2: SIMPAN LOKAL (JIKA DI LOCALHOST)
-    SAVE_DIR = "save_projects"
-    os.makedirs(SAVE_DIR, exist_ok=True)
-    if st.button("💾 Simpan ke Folder Lokal", use_container_width=True):
-        filepath = os.path.join(SAVE_DIR, f"{st.session_state.current_project_name}.athied")
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(json.dumps(current_project_data, indent=2, ensure_ascii=False))
-        st.success(f"Tersimpan di save_projects/{st.session_state.current_project_name}.athied")
-
-    if st.button("🔄 Proyek Baru", use_container_width=True):
+    if st.button("🔄 Mulai Proyek Baru", use_container_width=True):
         st.session_state.draft_chapters = {}
         st.session_state.chat_history = {}
         st.session_state.collected_references = []
         st.session_state.concept_data = {}
         st.session_state.locked_title = ""
         st.session_state.locked_outline = []
-        st.session_state.current_project_name = "Proyek_HAN_Baru"
+        st.session_state.current_project_name = "Proyek_Disertasi_Baru"
         st.rerun()
 
     st.divider()
-    st.markdown("**📂 Buka Proyek dari Laptop (.athied):**")
-    uploaded_project_file = st.file_uploader("Unggah Berkas Proyek", type=["athied", "json"], key="project_uploader")
-
-    if uploaded_project_file is not None:
-        if st.button("📂 Muat Proyek Unggahan", use_container_width=True):
-            data_load = json.load(uploaded_project_file)
-            st.session_state.draft_chapters = data_load.get("draft_chapters", {})
-            st.session_state.chat_history = data_load.get("chat_history", {})
-            st.session_state.concept_data = data_load.get("concept_data", {})
-            st.session_state.collected_references = data_load.get("references", [])
-            st.session_state.locked_title = data_load.get("locked_title", "")
-            st.session_state.locked_outline = data_load.get("locked_outline", [])
+    st.markdown("**📂 Buka Proyek dari Google Drive:**")
+    
+    if gdrive_folder_id:
+        gdrive_files = list_gdrive_files(gdrive_folder_id)
+        if gdrive_files:
+            file_options = {f['name']: f['id'] for f in gdrive_files}
+            selected_file_name = st.selectbox("Pilih Proyek Tersimpan:", list(file_options.keys()))
             
-            # MENGAMBIL NAMA PROYEK DARI FILE YANG DI-LOAD
-            loaded_name = data_load.get("project_name", uploaded_project_file.name.replace(".athied", "").replace(".json", ""))
-            st.session_state.current_project_name = loaded_name
-            st.success(f"Proyek '{loaded_name}' Berhasil Dimuat!")
-            st.rerun()
-
-    # BUKA DARI FOLDER LOKAL (JIKA ADA DI LOCALHOST)
-    saved_files = [f for f in os.listdir(SAVE_DIR) if f.endswith(".athied")]
-    if saved_files:
-        st.markdown("**📂 Atau Pilih Proyek Lokal:**")
-        selected_project_file = st.selectbox("Pilih Proyek Server:", saved_files)
-        if st.button("📂 Muat Proyek Lokal", use_container_width=True):
-            filepath = os.path.join(SAVE_DIR, selected_project_file)
-            with open(filepath, "r", encoding="utf-8") as f:
-                data_load = json.load(f)
-
-            st.session_state.draft_chapters = data_load.get("draft_chapters", {})
-            st.session_state.chat_history = data_load.get("chat_history", {})
-            st.session_state.concept_data = data_load.get("concept_data", {})
-            st.session_state.collected_references = data_load.get("references", [])
-            st.session_state.locked_title = data_load.get("locked_title", "")
-            st.session_state.locked_outline = data_load.get("locked_outline", [])
-            st.session_state.current_project_name = selected_project_file.replace(".athied", "")
-            st.success("Proyek Lokal Berhasil Dimuat!")
-            st.rerun()
+            if st.button("📂 Muat Proyek dari Cloud", use_container_width=True):
+                with st.spinner("Mengunduh data proyek dari Google Drive..."):
+                    file_id = file_options[selected_file_name]
+                    data_load = load_from_gdrive(file_id)
+                    
+                    if data_load:
+                        st.session_state.draft_chapters = data_load.get("draft_chapters", {})
+                        st.session_state.chat_history = data_load.get("chat_history", {})
+                        st.session_state.concept_data = data_load.get("concept_data", {})
+                        st.session_state.collected_references = data_load.get("references", [])
+                        st.session_state.locked_title = data_load.get("locked_title", "")
+                        st.session_state.locked_outline = data_load.get("locked_outline", [])
+                        st.session_state.current_project_name = selected_file_name.replace(".athied", "")
+                        st.success(f"Proyek '{selected_file_name}' Berhasil Dimuat!")
+                        st.rerun()
+        else:
+            st.caption("Belum ada berkas proyek tersimpan di folder Google Drive.")
+    else:
+        st.caption("Konfigurasi Google Drive belum aktif.")
 
     st.divider()
     st.caption("🔒 Status Engine Terkunci:")
@@ -338,7 +326,7 @@ with tab1:
                 st.rerun()
 
 # =============================================================================
-# TAB 2: ATHIED SMART WORKSPACE (Navigasi Dinamis & Autoreferensi API Direct)
+# TAB 2: ATHIED SMART WORKSPACE
 # =============================================================================
 with tab2:
     st.subheader("Athied Smart Workspace")
