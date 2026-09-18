@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS Tampilan Akademis Soothing Slate & Visual Lembar Kerja Word
+# Custom CSS Tampilan Akademis
 st.markdown("""
     <style>
     .stApp {
@@ -70,7 +70,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 2. SESSION STATE INITIALIZATION (FULL STATE PERSISTENCE)
+# 2. SESSION STATE INITIALIZATION
 # -----------------------------------------------------------------------------
 if "draft_chapters" not in st.session_state:
     st.session_state.draft_chapters = {}
@@ -84,9 +84,11 @@ if "locked_title" not in st.session_state:
     st.session_state.locked_title = ""
 if "locked_outline" not in st.session_state:
     st.session_state.locked_outline = []
+if "current_project_name" not in st.session_state:
+    st.session_state.current_project_name = "Proyek_HAN_1"
 
 # -----------------------------------------------------------------------------
-# 3. SIDEBAR PANEL (PROFILE, COMPLETE STATE MANAGER & CONFIG)
+# 3. SIDEBAR PANEL (MANAGEMENT PROYEK HYBRID - CLOUD & LOCAL)
 # -----------------------------------------------------------------------------
 with st.sidebar:
     if os.path.exists("profile.png"):
@@ -99,49 +101,83 @@ with st.sidebar:
 
     api_key_active = st.secrets.get("GEMINI_API_KEY", "")
 
-    st.subheader("💾 Manajemen Pekerjaan Lokal")
+    st.subheader("💾 Manajemen Pekerjaan Proyek")
+
+    # Kolom Nama Proyek yang Ter-update Otomatis
+    project_name_input = st.text_input(
+        "Nama Berkas Proyek", 
+        value=st.session_state.current_project_name, 
+        help="Masukkan nama proyek tanpa ekstensi"
+    )
+    st.session_state.current_project_name = project_name_input.strip().replace(" ", "_")
+
+    # Paket Data Proyek untuk Simpan / Download
+    current_project_data = {
+        "project_name": st.session_state.current_project_name,
+        "draft_chapters": st.session_state.draft_chapters,
+        "chat_history": st.session_state.chat_history,
+        "concept_data": st.session_state.concept_data,
+        "references": st.session_state.collected_references,
+        "locked_title": st.session_state.locked_title,
+        "locked_outline": st.session_state.locked_outline
+    }
+    json_project_bytes = json.dumps(current_project_data, indent=2, ensure_ascii=False).encode('utf-8')
+
+    # FITUR 1: DOWNLOAD FILE PROYEK (COCOK UNTUK STREAMLIT CLOUD & LOCAL)
+    st.download_button(
+        label="📥 Unduh Berkas Proyek (.athied)",
+        data=json_project_bytes,
+        file_name=f"{st.session_state.current_project_name}.athied",
+        mime="application/json",
+        use_container_width=True,
+        type="primary"
+    )
+
+    # FITUR 2: SIMPAN LOKAL (JIKA DI LOCALHOST)
     SAVE_DIR = "save_projects"
     os.makedirs(SAVE_DIR, exist_ok=True)
+    if st.button("💾 Simpan ke Folder Lokal", use_container_width=True):
+        filepath = os.path.join(SAVE_DIR, f"{st.session_state.current_project_name}.athied")
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(json.dumps(current_project_data, indent=2, ensure_ascii=False))
+        st.success(f"Tersimpan di save_projects/{st.session_state.current_project_name}.athied")
 
-    project_name_input = st.text_input("Nama Berkas Proyek", value="Proyek_HAN_1", help="Masukkan nama proyek tanpa ekstensi")
+    if st.button("🔄 Proyek Baru", use_container_width=True):
+        st.session_state.draft_chapters = {}
+        st.session_state.chat_history = {}
+        st.session_state.collected_references = []
+        st.session_state.concept_data = {}
+        st.session_state.locked_title = ""
+        st.session_state.locked_outline = []
+        st.session_state.current_project_name = "Proyek_HAN_Baru"
+        st.rerun()
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("💾 Simpan Proyek", use_container_width=True, type="primary"):
-            clean_filename = project_name_input.strip().replace(" ", "_")
-            filename = f"{clean_filename}.athied"
-            filepath = os.path.join(SAVE_DIR, filename)
+    st.divider()
+    st.markdown("**📂 Buka Proyek dari Laptop (.athied):**")
+    uploaded_project_file = st.file_uploader("Unggah Berkas Proyek", type=["athied", "json"], key="project_uploader")
 
-            project_data = {
-                "draft_chapters": st.session_state.draft_chapters,
-                "chat_history": st.session_state.chat_history,
-                "concept_data": st.session_state.concept_data,
-                "references": st.session_state.collected_references,
-                "locked_title": st.session_state.locked_title,
-                "locked_outline": st.session_state.locked_outline
-            }
-
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(project_data, f, indent=2, ensure_ascii=False)
-
-            st.success(f"Tersimpan di save_projects/{filename}")
-
-    with col_btn2:
-        if st.button("🔄 Proyek Baru", use_container_width=True):
-            st.session_state.draft_chapters = {}
-            st.session_state.chat_history = {}
-            st.session_state.collected_references = []
-            st.session_state.concept_data = {}
-            st.session_state.locked_title = ""
-            st.session_state.locked_outline = []
+    if uploaded_project_file is not None:
+        if st.button("📂 Muat Proyek Unggahan", use_container_width=True):
+            data_load = json.load(uploaded_project_file)
+            st.session_state.draft_chapters = data_load.get("draft_chapters", {})
+            st.session_state.chat_history = data_load.get("chat_history", {})
+            st.session_state.concept_data = data_load.get("concept_data", {})
+            st.session_state.collected_references = data_load.get("references", [])
+            st.session_state.locked_title = data_load.get("locked_title", "")
+            st.session_state.locked_outline = data_load.get("locked_outline", [])
+            
+            # MENGAMBIL NAMA PROYEK DARI FILE YANG DI-LOAD
+            loaded_name = data_load.get("project_name", uploaded_project_file.name.replace(".athied", "").replace(".json", ""))
+            st.session_state.current_project_name = loaded_name
+            st.success(f"Proyek '{loaded_name}' Berhasil Dimuat!")
             st.rerun()
 
-    st.markdown("**📂 Lanjutkan Proyek Tersimpan:**")
+    # BUKA DARI FOLDER LOKAL (JIKA ADA DI LOCALHOST)
     saved_files = [f for f in os.listdir(SAVE_DIR) if f.endswith(".athied")]
-
     if saved_files:
-        selected_project_file = st.selectbox("Pilih Proyek:", saved_files)
-        if st.button("📂 Muat Proyek Utuh", use_container_width=True):
+        st.markdown("**📂 Atau Pilih Proyek Lokal:**")
+        selected_project_file = st.selectbox("Pilih Proyek Server:", saved_files)
+        if st.button("📂 Muat Proyek Lokal", use_container_width=True):
             filepath = os.path.join(SAVE_DIR, selected_project_file)
             with open(filepath, "r", encoding="utf-8") as f:
                 data_load = json.load(f)
@@ -152,10 +188,9 @@ with st.sidebar:
             st.session_state.collected_references = data_load.get("references", [])
             st.session_state.locked_title = data_load.get("locked_title", "")
             st.session_state.locked_outline = data_load.get("locked_outline", [])
-            st.success("Proyek & Seluruh Memori Berhasil Dimuat!")
+            st.session_state.current_project_name = selected_project_file.replace(".athied", "")
+            st.success("Proyek Lokal Berhasil Dimuat!")
             st.rerun()
-    else:
-        st.caption("Belum ada file proyek tersimpan di folder save_projects.")
 
     st.divider()
     st.caption("🔒 Status Engine Terkunci:")
@@ -405,15 +440,16 @@ with tab2:
         with tb_col3:
             st.metric(label="Jumlah Kata Total", value=f"{words_count} kata")
 
-        # Fitur Perluas Draf Bab jika belum mencapai 7.000 kata substansi
-        if current_text and words_count < 6000 and any(k in tier2 for k in ["Disertasi", "Referensi", "Monograf"]):
-            if st.button("➕ Perluas & Tambahkan Kedalaman Bab (+3.000 Kata Substansi)", type="secondary"):
-                with st.spinner("Memperluas pembahasan sub-subbab..."):
+        # FITUR PERLUAS DRAF BAB
+        if current_text:
+            st.markdown("---")
+            if st.button("➕ Perluas & Tambahkan Kedalaman Bab (+3.000 Kata Substansi)", type="secondary", use_container_width=True):
+                with st.spinner("Memperluas pembahasan sub-subbab dan menambahkan analisis doktrinal baru..."):
                     expand_prompt = f"""
                     TEKS BAB SAAT INI:
                     {current_text}
 
-                    TUGAS: Perluas dan perdalam pembahasan BAGIAN I, BAGIAN II, DAN BAGIAN III pada bab di atas agar substansinya makin kaya. Tambahkan analisis komparasi hukum, pembahasan teori doktrinal, dan sub-subbab baru dengan menyuntikkan bodynote (Nama, Tahun) pada paragraf baru. Target total mendekati 7.000 kata MURNI SUBSTANSI BAB (di luar daftar pustaka).
+                    TUGAS: Perluas dan perdalam pembahasan BAGIAN I, BAGIAN II, DAN BAGIAN III pada bab di atas agar substansinya jauh lebih komprehensif. Tambahkan analisis komparasi hukum, pembahasan teori doktrinal baru, dan sub-subbab baru dengan menyuntikkan bodynote APA Style (Nama, Tahun) pada paragraf baru. Target total mendalam dan komprehensif (7.000+ kata MURNI SUBSTANSI BAB, di luar daftar pustaka).
                     """
                     sys_prompt = PROMPT_KARYA_ILMIAH_HUKUM if tier1 == "Karya Ilmiah Hukum" else PROMPT_BUKU_AKADEMIK
                     expanded_text = generate_section_content_with_pdf(api_key_active, sys_prompt, expand_prompt, model_name="gemini-3.8-flash")
@@ -475,7 +511,7 @@ with tab2:
                 st.rerun()
 
 # =============================================================================
-# TAB 3: EXPORTER & PLAIN TEXT RIS DISPLAY (SIAP SALIN KE NOTEPAD)
+# TAB 3: EXPORTER & PLAIN TEXT RIS DISPLAY
 # =============================================================================
 with tab3:
     st.header("Modul Sitasi RIS (Plain Text) & Ekspor Dokumen Utuh")
@@ -492,7 +528,7 @@ with tab3:
                 "Salin Teks Kode RIS di bawah ini:", 
                 value=ris_plain_text, 
                 height=350,
-                help="Blok seluruh teks ini (Ctrl+A), lalu salin (Ctrl+C) dan tempel ke Notepad laptop Anda."
+                help="Blok seluruh teks ini ke Notepad laptop Anda."
             )
 
             st.download_button(
